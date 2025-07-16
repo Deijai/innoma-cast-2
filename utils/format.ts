@@ -30,36 +30,129 @@ export const formatFileSize = (bytes: number): string => {
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
 };
 
-export const formatDate = (date: Date): string => {
-    return new Intl.DateTimeFormat('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    }).format(date);
+export const formatDate = (date: Date | any): string => {
+    try {
+        // Se não é uma data válida, retornar string padrão
+        if (!date) return 'Data não disponível';
+
+        // Se já é um objeto Date válido
+        if (date instanceof Date && !isNaN(date.getTime())) {
+            return new Intl.DateTimeFormat('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            }).format(date);
+        }
+
+        // Se é um Timestamp do Firestore
+        if (date.seconds !== undefined) {
+            const firebaseDate = new Date(date.seconds * 1000);
+            return new Intl.DateTimeFormat('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            }).format(firebaseDate);
+        }
+
+        // Se é uma string, tentar converter
+        if (typeof date === 'string') {
+            const parsedDate = new Date(date);
+            if (!isNaN(parsedDate.getTime())) {
+                return new Intl.DateTimeFormat('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                }).format(parsedDate);
+            }
+        }
+
+        // Fallback
+        return 'Data inválida';
+    } catch (error) {
+        console.warn('Erro ao formatar data:', error);
+        return 'Data inválida';
+    }
 };
 
-export const formatDateTime = (date: Date): string => {
-    return new Intl.DateTimeFormat('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    }).format(date);
+export const formatDateTime = (date: Date | any): string => {
+    try {
+        if (!date) return 'Data não disponível';
+
+        if (date instanceof Date && !isNaN(date.getTime())) {
+            return new Intl.DateTimeFormat('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(date);
+        }
+
+        if (date.seconds !== undefined) {
+            const firebaseDate = new Date(date.seconds * 1000);
+            return new Intl.DateTimeFormat('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }).format(firebaseDate);
+        }
+
+        if (typeof date === 'string') {
+            const parsedDate = new Date(date);
+            if (!isNaN(parsedDate.getTime())) {
+                return new Intl.DateTimeFormat('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }).format(parsedDate);
+            }
+        }
+
+        return 'Data inválida';
+    } catch (error) {
+        console.warn('Erro ao formatar data/hora:', error);
+        return 'Data inválida';
+    }
 };
 
-export const formatRelativeTime = (date: Date): string => {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+export const formatRelativeTime = (date: Date | any): string => {
+    try {
+        if (!date) return 'Data não disponível';
 
-    if (diffDays === 0) return 'Hoje';
-    if (diffDays === 1) return 'Ontem';
-    if (diffDays < 7) return `${diffDays} dias atrás`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} semanas atrás`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} meses atrás`;
+        let validDate: Date;
 
-    return `${Math.floor(diffDays / 365)} anos atrás`;
+        if (date instanceof Date && !isNaN(date.getTime())) {
+            validDate = date;
+        } else if (date.seconds !== undefined) {
+            validDate = new Date(date.seconds * 1000);
+        } else if (typeof date === 'string') {
+            validDate = new Date(date);
+            if (isNaN(validDate.getTime())) {
+                return 'Data inválida';
+            }
+        } else {
+            return 'Data inválida';
+        }
+
+        const now = new Date();
+        const diffMs = now.getTime() - validDate.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) return 'Hoje';
+        if (diffDays === 1) return 'Ontem';
+        if (diffDays < 7) return `${diffDays} dias atrás`;
+        if (diffDays < 30) return `${Math.floor(diffDays / 7)} semanas atrás`;
+        if (diffDays < 365) return `${Math.floor(diffDays / 30)} meses atrás`;
+
+        return `${Math.floor(diffDays / 365)} anos atrás`;
+    } catch (error) {
+        console.warn('Erro ao formatar tempo relativo:', error);
+        return 'Data inválida';
+    }
 };
 
 export const truncateText = (text: string, maxLength: number): string => {

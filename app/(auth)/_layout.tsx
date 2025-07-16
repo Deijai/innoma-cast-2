@@ -7,11 +7,16 @@ export default function AuthLayout() {
     const router = useRouter();
 
     useEffect(() => {
-        // If user becomes authenticated, redirect to app
+        // If user becomes authenticated, redirect to main app
         if (!isLoading && isAuthenticated) {
-            router.replace('/(app)/dashboard');
+            router.replace('/(app)/(tabs)');
         }
-    }, [isAuthenticated, isLoading]);
+    }, [isAuthenticated, isLoading, router]);
+
+    // Don't render anything while loading or if authenticated
+    if (isLoading || isAuthenticated) {
+        return null;
+    }
 
     return (
         <Stack screenOptions={{ headerShown: false }}>

@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { useTheme } from '../../hooks/useTheme';
-import { CATEGORIES } from '../../types';
+import { useTheme } from '../../../hooks/useTheme';
+import { CATEGORIES } from '../../../types';
 
 export default function Discover() {
     const { colors } = useTheme();

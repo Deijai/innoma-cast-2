@@ -1,25 +1,42 @@
+// app/(app)/(tabs)/_layout.tsx - COM LOGS DETALHADOS
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { useAuth } from '../../hooks/useAuth';
-import { useTheme } from '../../hooks/useTheme';
+import { useAuth } from '../../../hooks/useAuth';
+import { useTheme } from '../../../hooks/useTheme';
 
-export default function AppLayout() {
-    const { isAuthenticated, isLoading, isCreator } = useAuth();
+export default function TabsLayout() {
+    const { isAuthenticated, isLoading, isCreator, user } = useAuth();
     const { colors } = useTheme();
     const router = useRouter();
 
+    // 🐛 DEBUG MÁXIMO
+    console.log('=== TABS LAYOUT DEBUG ===');
+    console.log('isAuthenticated:', isAuthenticated);
+    console.log('isLoading:', isLoading);
+    console.log('isCreator:', isCreator);
+    console.log('user:', user);
+    console.log('user.role:', user?.role);
+    console.log('========================');
+
     useEffect(() => {
-        // If user becomes unauthenticated, redirect to auth
         if (!isLoading && !isAuthenticated) {
+            console.log('❌ Redirecionando para auth...');
             router.replace('/(auth)/profile-choice');
         }
-    }, [isAuthenticated, isLoading]);
+    }, [isAuthenticated, isLoading, router]);
 
-    // Don't render anything if not authenticated
-    if (!isLoading && !isAuthenticated) {
+    if (isLoading) {
+        console.log('⏳ Loading...');
         return null;
     }
+
+    if (!isAuthenticated) {
+        console.log('🚫 Not authenticated');
+        return null;
+    }
+
+    console.log('✅ Renderizando tabs para:', isCreator ? 'CREATOR' : 'LISTENER');
 
     return (
         <Tabs
@@ -45,9 +62,8 @@ export default function AppLayout() {
                 },
             }}
         >
-            {/* Dashboard - Sempre visível */}
             <Tabs.Screen
-                name="dashboard"
+                name="index"
                 options={{
                     title: 'Início',
                     tabBarIcon: ({ color, size }) => (
@@ -56,76 +72,49 @@ export default function AppLayout() {
                 }}
             />
 
-            {/* Descobrir - Apenas para ouvintes */}
+            {/* TESTE: SEMPRE MOSTRAR DISCOVER */}
             <Tabs.Screen
                 name="discover"
                 options={{
                     title: 'Descobrir',
-                    href: isCreator ? null : '/(app)/discover',
+                    // href: isCreator ? null : undefined, // COMENTADO PARA TESTE
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="search" size={size} color={color} />
                     ),
                 }}
             />
 
-            {/* Biblioteca - Apenas para ouvintes */}
+            {/* TESTE: SEMPRE MOSTRAR LIBRARY */}
             <Tabs.Screen
                 name="library"
                 options={{
                     title: 'Biblioteca',
-                    href: isCreator ? null : '/(app)/library',
+                    // href: isCreator ? null : undefined, // COMENTADO PARA TESTE
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="library" size={size} color={color} />
                     ),
                 }}
             />
 
-            {/* Meus Podcasts - Apenas para criadores */}
             <Tabs.Screen
                 name="my-podcasts"
                 options={{
                     title: 'Meus Podcasts',
-                    href: isCreator ? '/(app)/my-podcasts' : null,
+                    href: !isCreator ? null : undefined,
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="mic" size={size} color={color} />
                     ),
                 }}
             />
 
-            {/* Analytics - Apenas para criadores */}
             <Tabs.Screen
                 name="analytics"
                 options={{
                     title: 'Analytics',
-                    href: isCreator ? '/(app)/analytics' : null,
+                    href: !isCreator ? null : undefined,
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="stats-chart" size={size} color={color} />
                     ),
-                }}
-            />
-
-            {/* Configurações - Sempre visível */}
-            <Tabs.Screen
-                name="settings"
-                options={{
-                    title: 'Configurações',
-                    tabBarIcon: ({ color, size }) => (
-                        <Ionicons name="settings" size={size} color={color} />
-                    ),
-                }}
-            />
-
-            {/* Rotas modais/stack - ocultas das tabs */}
-            <Tabs.Screen
-                name="podcasts"
-                options={{
-                    href: null, // Oculta da tab bar
-                }}
-            />
-            <Tabs.Screen
-                name="episodes"
-                options={{
-                    href: null, // Oculta da tab bar
                 }}
             />
         </Tabs>

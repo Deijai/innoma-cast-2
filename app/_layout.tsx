@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 export default function RootLayout() {
     const { activeTheme } = useTheme();
     const initializeAuth = useAuthStore(state => state.initializeAuth);
+    const cleanup = useAuthStore(state => state.cleanup);
 
     useEffect(() => {
         // Initialize authentication state
@@ -17,6 +18,7 @@ export default function RootLayout() {
             if (unsubscribe) {
                 unsubscribe();
             }
+            cleanup();
         };
     }, []);
 

@@ -1,28 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { PlayerControls } from '../../components/PlayerControls';
-import { usePlayer } from '../../hooks/useAudio';
-import { useAuth } from '../../hooks/useAuth';
-import { useTheme } from '../../hooks/useTheme';
+import React from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '../../../hooks/useAuth';
+import { useTheme } from '../../../hooks/useTheme';
 
 export default function Dashboard() {
     const router = useRouter();
     const { colors } = useTheme();
-    const { user, isCreator, signOut, isLoading, isAuthenticated } = useAuth();
-    const { currentEpisode } = usePlayer();
+    const { user, isCreator, signOut } = useAuth();
 
     const styles = StyleSheet.create({
         container: {
             flex: 1,
             backgroundColor: colors.background,
-        },
-        loadingContainer: {
-            flex: 1,
-            backgroundColor: colors.background,
-            justifyContent: 'center',
-            alignItems: 'center',
         },
         header: {
             flexDirection: 'row',
@@ -172,65 +163,35 @@ export default function Dashboard() {
             fontSize: 12,
             color: colors.textSecondary,
         },
-        playerContainer: {
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-        },
     });
-
-    useEffect(() => {
-        // Only redirect if we're sure the user is not authenticated
-        console.log('Dashboard useEffect:', { isLoading, isAuthenticated, user: !!user });
-        if (!isLoading && !isAuthenticated) {
-            console.log('Not authenticated, redirecting to home');
-            router.replace('/');
-        }
-    }, [isLoading, isAuthenticated, router]);
 
     const handleSignOut = async () => {
         try {
             await signOut();
-            router.replace('/');
+            router.replace('/(auth)/profile-choice');
         } catch (error) {
             console.error('Error signing out:', error);
         }
     };
-
-    // Show loading while checking authentication
-    if (isLoading) {
-        return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={[styles.greeting, { marginTop: 16 }]}>Carregando...</Text>
-            </View>
-        );
-    }
-
-    // Don't render if not authenticated
-    if (!isAuthenticated || !user) {
-        return null;
-    }
 
     const creatorActions = [
         {
             icon: 'add-circle',
             title: 'Novo Podcast',
             description: 'Criar um novo podcast',
-            onPress: () => router.push('/podcasts/new'),
+            onPress: () => router.push('/(app)/podcasts/new'),
         },
         {
             icon: 'mic',
             title: 'Gravar Episódio',
             description: 'Gravar novo episódio',
-            onPress: () => router.push('/episodes/new'),
+            onPress: () => router.push('/(app)/episodes/new'),
         },
         {
             icon: 'stats-chart',
             title: 'Estatísticas',
             description: 'Ver desempenho',
-            onPress: () => alert('Em breve'),
+            onPress: () => router.push('/(app)/(tabs)/analytics'),
         },
         {
             icon: 'wallet',
@@ -245,13 +206,13 @@ export default function Dashboard() {
             icon: 'search',
             title: 'Descobrir',
             description: 'Encontrar podcasts',
-            onPress: () => alert('Em breve'),
+            onPress: () => router.push('/(app)/(tabs)/discover'),
         },
         {
             icon: 'heart',
             title: 'Favoritos',
             description: 'Seus podcasts salvos',
-            onPress: () => alert('Em breve'),
+            onPress: () => router.push('/(app)/(tabs)/library'),
         },
         {
             icon: 'time',
@@ -273,7 +234,7 @@ export default function Dashboard() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <Text style={styles.greeting}>Olá, {user.name.split(' ')[0]}!</Text>
+                    <Text style={styles.greeting}>Olá, {user?.name?.split(' ')[0]}!</Text>
                     <View style={styles.roleIndicator}>
                         <Ionicons
                             name={isCreator ? "mic" : "headset"}
@@ -289,7 +250,7 @@ export default function Dashboard() {
                 <View style={styles.headerRight}>
                     <TouchableOpacity
                         style={styles.iconButton}
-                        onPress={() => router.push('/settings')}
+                        onPress={() => router.push('/(app)/settings')}
                     >
                         <Ionicons name="settings" size={24} color={colors.text} />
                     </TouchableOpacity>
@@ -305,7 +266,7 @@ export default function Dashboard() {
 
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={{ paddingBottom: currentEpisode ? 120 : 20 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
                 showsVerticalScrollIndicator={false}
             >
                 <View style={styles.quickActions}>
@@ -371,12 +332,6 @@ export default function Dashboard() {
                     </View>
                 </View>
             </ScrollView>
-
-            {currentEpisode && (
-                <View style={styles.playerContainer}>
-                    <PlayerControls compact />
-                </View>
-            )}
         </View>
     );
 }

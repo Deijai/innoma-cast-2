@@ -1,12 +1,13 @@
-import { AudioPlayer, AudioQuality, AudioRecorder, RecordingOptions, useAudioPlayer, useAudioRecorder } from 'expo-audio';
+import { Audio } from 'expo-av';
 import { create } from 'zustand';
 import { Episode, PlaybackState } from '../types';
 
 interface AudioState extends PlaybackState {
-    player: AudioPlayer | null;
-    recorder: AudioRecorder | null;
+    sound: Audio.Sound | null;
+    recording: Audio.Recording | null;
     isRecording: boolean;
     recordingDuration: number;
+    recordingUri: string | null;
 
     // Player Actions
     loadEpisode: (episode: Episode) => Promise<void>;
@@ -19,7 +20,7 @@ interface AudioState extends PlaybackState {
     skipBackward: (seconds?: number) => Promise<void>;
 
     // Recording Actions
-    startRecording: () => Promise<string>;
+    startRecording: () => Promise<void>;
     stopRecording: () => Promise<string | null>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => Promise<void>;
@@ -37,30 +38,56 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     currentEpisode: undefined,
     playbackSpeed: 1.0,
     isLoading: false,
-    player: null,
+    sound: null,
 
     // Recording State
-    recorder: null,
+    recording: null,
     isRecording: false,
     recordingDuration: 0,
+    recordingUri: null,
 
     loadEpisode: async (episode: Episode) => {
         try {
             set({ isLoading: true });
 
-            // Cleanup previous player
-            const { player: currentPlayer } = get();
-            if (currentPlayer) {
-                currentPlayer.remove();
+            // Cleanup previous sound
+            const { sound: currentSound } = get();
+            if (currentSound) {
+                await currentSound.unloadAsync();
             }
 
-            // Create new player with just the source URL
-            const player = useAudioPlayer(episode.audioUrl);
+            // Set audio mode for playback
+            await Audio.setAudioModeAsync({
+                staysActiveInBackground: true,
+                playsInSilentModeIOS: true,
+                shouldDuckAndroid: true,
+                playThroughEarpieceAndroid: false,
+                allowsRecordingIOS: false,
+            });
+
+            // Create and load new sound
+            const { sound } = await Audio.Sound.createAsync(
+                { uri: episode.audioUrl },
+                {
+                    shouldPlay: false,
+                    isLooping: false,
+                    rate: get().playbackSpeed,
+                    shouldCorrectPitch: true,
+                },
+                (status) => {
+                    if (status.isLoaded) {
+                        set({
+                            position: status.positionMillis || 0,
+                            duration: status.durationMillis || 0,
+                            isPlaying: status.isPlaying || false,
+                        });
+                    }
+                }
+            );
 
             set({
-                player,
+                sound,
                 currentEpisode: episode,
-                duration: 0, // Will be updated when loaded
                 position: 0,
                 isLoading: false
             });
@@ -74,9 +101,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     play: async () => {
         try {
-            const { player } = get();
-            if (player) {
-                player.play();
+            const { sound } = get();
+            if (sound) {
+                await sound.playAsync();
                 set({ isPlaying: true });
             }
         } catch (error) {
@@ -86,9 +113,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     pause: async () => {
         try {
-            const { player } = get();
-            if (player) {
-                player.pause();
+            const { sound } = get();
+            if (sound) {
+                await sound.pauseAsync();
                 set({ isPlaying: false });
             }
         } catch (error) {
@@ -98,13 +125,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     stop: async () => {
         try {
-            const { player } = get();
-            if (player) {
-                player.pause();
-                // Reset position through seekTo if available
-                if ('seekTo' in player) {
-                    (player as any).seekTo(0);
-                }
+            const { sound } = get();
+            if (sound) {
+                await sound.stopAsync();
+                await sound.setPositionAsync(0);
                 set({ position: 0, isPlaying: false });
             }
         } catch (error) {
@@ -114,9 +138,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     seekTo: async (position: number) => {
         try {
-            const { player } = get();
-            if (player && 'seekTo' in player) {
-                (player as any).seekTo(position / 1000); // Convert to seconds
+            const { sound } = get();
+            if (sound) {
+                await sound.setPositionAsync(position);
                 set({ position });
             }
         } catch (error) {
@@ -126,9 +150,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     setPlaybackSpeed: async (speed: number) => {
         try {
-            const { player } = get();
-            if (player && 'setRate' in player) {
-                (player as any).setRate(speed);
+            const { sound } = get();
+            if (sound) {
+                await sound.setRateAsync(speed, true);
                 set({ playbackSpeed: speed });
             }
         } catch (error) {
@@ -156,45 +180,40 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         }
     },
 
-    startRecording: async (): Promise<string> => {
+    startRecording: async () => {
         try {
-            // Recording options with correct types
-            const options: RecordingOptions = {
-                android: {
-                    extension: '.m4a',
-                    outputFormat: 'mpeg4',
-                    audioEncoder: 'aac',
-                    sampleRate: 44100,
-                },
-                ios: {
-                    extension: '.m4a',
-                    audioQuality: AudioQuality.HIGH,
-                    sampleRate: 44100,
-                    //bitRate: 128000,
-                    linearPCMBitDepth: 16,
-                    linearPCMIsBigEndian: false,
-                    linearPCMIsFloat: false,
+            // Request permissions
+            const { status } = await Audio.requestPermissionsAsync();
+            if (status !== 'granted') {
+                throw new Error('Permission to record audio denied');
+            }
 
-                },
-                web: {
-                    mimeType: 'audio/webm',
-                    bitsPerSecond: 128000,
-                },
-                extension: '',
-                sampleRate: 0,
-                numberOfChannels: 0,
-                bitRate: 0
-            };
+            // Set audio mode for recording
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+                staysActiveInBackground: true,
+                shouldDuckAndroid: true,
+                playThroughEarpieceAndroid: false,
+            });
 
-            // Create recorder with options
-            const recorder = useAudioRecorder(options);
+            // Create new recording instance
+            const recording = new Audio.Recording();
+
+            // Prepare recording with HIGH_QUALITY preset
+            await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
 
             // Start recording
-            await recorder.record();
+            await recording.startAsync();
 
-            set({ recorder, isRecording: true, recordingDuration: 0 });
+            set({
+                recording,
+                isRecording: true,
+                recordingDuration: 0,
+                recordingUri: null
+            });
 
-            // Update recording duration
+            // Update recording duration every second
             const interval = setInterval(() => {
                 const { isRecording } = get();
                 if (!isRecording) {
@@ -204,7 +223,6 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 set(state => ({ recordingDuration: state.recordingDuration + 1000 }));
             }, 1000);
 
-            return 'Recording started';
         } catch (error) {
             console.error('Error starting recording:', error);
             throw error;
@@ -213,18 +231,29 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     stopRecording: async (): Promise<string | null> => {
         try {
-            const { recorder } = get();
-            if (!recorder) return null;
+            const { recording } = get();
+            if (!recording) return null;
 
-            const uri = await recorder.stop();
+            // Stop and unload recording
+            await recording.stopAndUnloadAsync();
+            const uri = recording.getURI();
 
-            set({
-                recorder: null,
-                isRecording: false,
-                recordingDuration: 0
+            // Reset audio mode back to playback
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                playsInSilentModeIOS: true,
+                staysActiveInBackground: true,
+                shouldDuckAndroid: true,
+                playThroughEarpieceAndroid: false,
             });
 
-            return uri ?? null;
+            set({
+                recording: null,
+                isRecording: false,
+                recordingUri: uri,
+            });
+
+            return uri;
         } catch (error) {
             console.error('Error stopping recording:', error);
             throw error;
@@ -233,9 +262,14 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     pauseRecording: async () => {
         try {
-            const { recorder } = get();
-            if (recorder && 'pause' in recorder) {
-                await (recorder as any).pause();
+            const { recording } = get();
+            if (recording) {
+                // Check if pauseAsync is available (Android API 24+)
+                if (recording.pauseAsync) {
+                    await recording.pauseAsync();
+                } else {
+                    console.warn('Pause recording not supported on this platform');
+                }
             }
         } catch (error) {
             console.error('Error pausing recording:', error);
@@ -244,9 +278,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     resumeRecording: async () => {
         try {
-            const { recorder } = get();
-            if (recorder) {
-                await recorder.record();
+            const { recording } = get();
+            if (recording) {
+                // Resume is done by calling startAsync again after pause
+                await recording.startAsync();
             }
         } catch (error) {
             console.error('Error resuming recording:', error);
@@ -255,28 +290,30 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     cleanup: async () => {
         try {
-            const { player, recorder } = get();
+            const { sound, recording } = get();
 
-            if (player) {
-                player.remove();
+            if (sound) {
+                await sound.unloadAsync();
             }
 
-            if (recorder) {
+            if (recording) {
                 try {
-                    await recorder.stop();
+                    await recording.stopAndUnloadAsync();
                 } catch (error) {
-                    // Recorder might already be stopped
+                    // Recording might already be stopped
+                    console.log('Recording was already stopped');
                 }
             }
 
             set({
-                player: null,
-                recorder: null,
+                sound: null,
+                recording: null,
                 isPlaying: false,
                 isRecording: false,
                 position: 0,
                 duration: 0,
                 recordingDuration: 0,
+                recordingUri: null,
                 currentEpisode: undefined
             });
         } catch (error) {
@@ -285,11 +322,20 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     },
 
     updatePosition: () => {
-        // This method can be called to force position update
-        const { player } = get();
-        if (player && 'currentTime' in player) {
-            const currentTime = (player as any).currentTime || 0;
-            set({ position: currentTime * 1000 }); // Convert to milliseconds
+        // Force position update by getting current status
+        const { sound } = get();
+        if (sound) {
+            sound.getStatusAsync().then((status) => {
+                if (status.isLoaded) {
+                    set({
+                        position: status.positionMillis || 0,
+                        duration: status.durationMillis || 0,
+                        isPlaying: status.isPlaying || false,
+                    });
+                }
+            }).catch(error => {
+                console.log('Error getting audio status:', error);
+            });
         }
     }
 }));

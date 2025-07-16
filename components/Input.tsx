@@ -13,6 +13,7 @@ interface InputProps {
     autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
     multiline?: boolean;
     numberOfLines?: number;
+    maxLength?: number;
     error?: string;
     disabled?: boolean;
     leftIcon?: keyof typeof Ionicons.glyphMap;

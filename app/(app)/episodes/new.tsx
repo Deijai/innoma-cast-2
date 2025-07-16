@@ -1,12 +1,12 @@
+import { Button } from '@/components/Button';
+import { Input } from '@/components/Input';
+import { useRecorder } from '@/hooks/useAudio';
+import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Button } from '../../components/Button';
-import { Input } from '../../components/Input';
-import { useRecorder } from '../../hooks/useAudio';
-import { useAuth } from '../../hooks/useAuth';
-import { useTheme } from '../../hooks/useTheme';
 
 export default function NewEpisode() {
     const router = useRouter();

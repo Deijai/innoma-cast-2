@@ -31,9 +31,15 @@
     "plugins": [
       "expo-router",
       [
-        "expo-audio",
+        "expo-av",
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record audio."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them."
         }
       ]
     ],
