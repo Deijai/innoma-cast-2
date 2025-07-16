@@ -1,15 +1,14 @@
-// app/(app)/podcasts/edit/[id].tsx - CÓDIGO COMPLETO
-import { Button } from '@/components/Button';
-import { Input } from '@/components/Input';
-import { useAuth } from '@/hooks/useAuth';
-import { useTheme } from '@/hooks/useTheme';
-import { podcastService, storageService } from '@/services/firebase';
-import { CATEGORIES, Podcast } from '@/types';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Button } from '../../../../components/Button';
+import { Input } from '../../../../components/Input';
+import { useAuth } from '../../../../hooks/useAuth';
+import { useTheme } from '../../../../hooks/useTheme';
+import { podcastService, storageService } from '../../../../services/firebase';
+import { CATEGORIES, Podcast } from '../../../../types';
 
 export default function EditPodcast() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,20 +16,25 @@ export default function EditPodcast() {
     const { colors } = useTheme();
     const { user } = useAuth();
 
-    // Estados
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [podcast, setPodcast] = useState<Podcast | null>(null);
 
+    // Form state
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
     const [category, setCategory] = useState('');
-    const [coverImage, setCoverImage] = useState<string | null>(null);
-    const [newCoverImageUri, setNewCoverImageUri] = useState<string | null>(null);
+    const [coverImageUri, setCoverImageUri] = useState<string | null>(null);
+    const [originalCoverImage, setOriginalCoverImage] = useState<string>('');
 
     useEffect(() => {
+        console.log('📍 EditPodcast - ID recebido:', id);
         if (id) {
             loadPodcast();
+        } else {
+            console.error('❌ ID do podcast não fornecido');
+            Alert.alert('Erro', 'ID do podcast não encontrado');
+            router.back();
         }
     }, [id]);
 
@@ -39,26 +43,29 @@ export default function EditPodcast() {
             console.log('📡 Carregando podcast para edição:', id);
             const podcastData = await podcastService.getById(id!);
 
-            if (!podcastData) {
+            if (podcastData) {
+                console.log('✅ Podcast encontrado:', podcastData.title);
+
+                // Verificar se é o dono do podcast
+                if (podcastData.creatorId !== user?.id) {
+                    console.error('❌ Usuário não é o dono do podcast');
+                    Alert.alert('Erro', 'Você não tem permissão para editar este podcast');
+                    router.back();
+                    return;
+                }
+
+                setPodcast(podcastData);
+                setTitle(podcastData.title);
+                setDescription(podcastData.description);
+                setCategory(podcastData.category);
+                setOriginalCoverImage(podcastData.coverImage);
+
+                console.log('✅ Dados do podcast carregados na interface');
+            } else {
+                console.error('❌ Podcast não encontrado no Firestore');
                 Alert.alert('Erro', 'Podcast não encontrado');
                 router.back();
-                return;
             }
-
-            // Verificar se é o dono
-            if (podcastData.creatorId !== user?.id) {
-                Alert.alert('Acesso negado', 'Você não pode editar este podcast');
-                router.back();
-                return;
-            }
-
-            setPodcast(podcastData);
-            setTitle(podcastData.title);
-            setDescription(podcastData.description);
-            setCategory(podcastData.category);
-            setCoverImage(podcastData.coverImage);
-
-            console.log('✅ Podcast carregado para edição');
         } catch (error) {
             console.error('❌ Erro ao carregar podcast:', error);
             Alert.alert('Erro', 'Não foi possível carregar o podcast');
@@ -71,8 +78,9 @@ export default function EditPodcast() {
     const handleSelectImage = async () => {
         try {
             const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
             if (!permissionResult.granted) {
-                Alert.alert('Permissão necessária', 'Precisamos de permissão para acessar sua galeria');
+                Alert.alert('Permissão necessária', 'Precisamos de permissão para acessar sua galeria de fotos.');
                 return;
             }
 
@@ -84,7 +92,8 @@ export default function EditPodcast() {
             });
 
             if (!result.canceled && result.assets[0]) {
-                setNewCoverImageUri(result.assets[0].uri);
+                setCoverImageUri(result.assets[0].uri);
+                console.log('🖼️ Nova imagem selecionada');
             }
         } catch (error) {
             console.error('Error selecting image:', error);
@@ -97,62 +106,88 @@ export default function EditPodcast() {
             Alert.alert('Erro', 'Por favor, digite o título do podcast');
             return false;
         }
+
         if (title.trim().length < 3) {
             Alert.alert('Erro', 'O título deve ter pelo menos 3 caracteres');
             return false;
         }
+
         if (!description.trim()) {
             Alert.alert('Erro', 'Por favor, digite a descrição do podcast');
             return false;
         }
+
         if (description.trim().length < 10) {
             Alert.alert('Erro', 'A descrição deve ter pelo menos 10 caracteres');
             return false;
         }
+
         if (!category) {
             Alert.alert('Erro', 'Por favor, selecione uma categoria');
             return false;
         }
+
         return true;
     };
 
-    const handleSave = async () => {
+    const uriToBlob = async (uri: string): Promise<Blob> => {
+        const response = await fetch(uri);
+        return await response.blob();
+    };
+
+    const handleSavePodcast = async () => {
         if (!validateForm() || !podcast) return;
 
         try {
             setSaving(true);
+            console.log('💾 Salvando alterações do podcast...');
 
-            let coverImageUrl = coverImage;
-
-            // Upload nova imagem se selecionada
-            if (newCoverImageUri) {
-                console.log('📸 Fazendo upload da nova capa...');
-                const response = await fetch(newCoverImageUri);
-                const blob = await response.blob();
-                coverImageUrl = await storageService.uploadPodcastCover(blob, podcast.id);
-                console.log('✅ Nova capa carregada:', coverImageUrl);
-            }
-
-            // Atualizar podcast
-            const updates = {
+            // Preparar dados para atualização
+            const updates: Partial<Podcast> = {
                 title: title.trim(),
                 description: description.trim(),
                 category,
-                coverImage: coverImageUrl,
-                updatedAt: new Date()
+                updatedAt: new Date(),
             };
 
-            console.log('💾 Atualizando podcast...', updates);
-            await podcastService.update(podcast.id, updates as any);
+            // Se houver nova imagem, fazer upload
+            if (coverImageUri) {
+                try {
+                    console.log('🖼️ Fazendo upload da nova capa...');
+                    const blob = await uriToBlob(coverImageUri);
+                    const newCoverUrl = await storageService.uploadPodcastCover(blob, podcast.id);
+                    updates.coverImage = newCoverUrl;
+                    console.log('✅ Nova capa enviada');
+                } catch (uploadError) {
+                    console.error('❌ Erro no upload da nova capa:', uploadError);
+                    Alert.alert(
+                        'Atenção',
+                        'As informações foram salvas, mas houve um problema ao atualizar a capa. Tente novamente mais tarde.'
+                    );
+                }
+            }
+
+            // Atualizar podcast no Firestore
+            await podcastService.update(podcast.id, updates);
+            console.log('✅ Podcast atualizado');
 
             Alert.alert(
                 'Sucesso! 🎉',
                 'Podcast atualizado com sucesso!',
-                [{ text: 'OK', onPress: () => router.back() }]
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => {
+                            console.log('🔙 Voltando para lista de podcasts');
+                            router.back();
+                        }
+                    }
+                ]
             );
+
         } catch (error) {
-            console.error('Error updating podcast:', error);
-            Alert.alert('Erro', 'Ocorreu um erro ao atualizar o podcast');
+            console.error('❌ Erro ao salvar podcast:', error);
+            Alert.alert('Erro', 'Não foi possível salvar as alterações');
         } finally {
             setSaving(false);
         }
@@ -172,20 +207,25 @@ export default function EditPodcast() {
                     onPress: async () => {
                         try {
                             setSaving(true);
+                            console.log('🗑️ Excluindo podcast...');
                             await podcastService.delete(podcast.id);
 
                             Alert.alert(
-                                'Sucesso',
-                                'Podcast excluído com sucesso',
-                                [{
-                                    text: 'OK',
-                                    onPress: () => router.replace('/(app)/(tabs)/my-podcasts')
-                                }]
+                                'Podcast Excluído',
+                                'O podcast foi excluído com sucesso.',
+                                [
+                                    {
+                                        text: 'OK',
+                                        onPress: () => {
+                                            console.log('🔙 Redirecionando para lista de podcasts');
+                                            router.replace('/(app)/(tabs)/my-podcasts');
+                                        }
+                                    }
+                                ]
                             );
                         } catch (error) {
-                            console.error('Error deleting podcast:', error);
+                            console.error('❌ Erro ao excluir podcast:', error);
                             Alert.alert('Erro', 'Não foi possível excluir o podcast');
-                        } finally {
                             setSaving(false);
                         }
                     }
@@ -225,6 +265,12 @@ export default function EditPodcast() {
         headerButton: {
             padding: 8,
         },
+        scrollView: {
+            flex: 1,
+        },
+        content: {
+            padding: 20,
+        },
         loadingContainer: {
             flex: 1,
             justifyContent: 'center',
@@ -233,25 +279,7 @@ export default function EditPodcast() {
         loadingText: {
             color: colors.textSecondary,
             marginTop: 16,
-        },
-        scrollView: {
-            flex: 1,
-        },
-        content: {
-            padding: 20,
-        },
-        warningBox: {
-            backgroundColor: colors.surface,
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 20,
-            borderLeftWidth: 4,
-            borderLeftColor: colors.warning,
-        },
-        warningText: {
-            fontSize: 14,
-            color: colors.text,
-            lineHeight: 20,
+            fontSize: 16,
         },
         imageSection: {
             alignItems: 'center',
@@ -264,6 +292,7 @@ export default function EditPodcast() {
             backgroundColor: colors.surface,
             borderWidth: 2,
             borderColor: colors.border,
+            borderStyle: coverImageUri || originalCoverImage ? 'solid' : 'dashed',
             alignItems: 'center',
             justifyContent: 'center',
             marginBottom: 12,
@@ -328,43 +357,11 @@ export default function EditPodcast() {
         },
         actions: {
             gap: 12,
-        },
-        saveButton: {
-            marginBottom: 12,
+            marginTop: 20,
         },
         deleteButton: {
             backgroundColor: colors.error,
-        },
-        episodeStats: {
-            backgroundColor: colors.card,
-            borderRadius: 12,
-            padding: 16,
-            marginBottom: 24,
-            borderWidth: 1,
-            borderColor: colors.border,
-        },
-        statsTitle: {
-            fontSize: 16,
-            fontWeight: '600',
-            color: colors.text,
-            marginBottom: 12,
-        },
-        statsGrid: {
-            flexDirection: 'row',
-            justifyContent: 'space-around',
-        },
-        statItem: {
-            alignItems: 'center',
-        },
-        statValue: {
-            fontSize: 20,
-            fontWeight: 'bold',
-            color: colors.primary,
-        },
-        statLabel: {
-            fontSize: 12,
-            color: colors.textSecondary,
-            marginTop: 2,
+            marginTop: 40,
         },
     });
 
@@ -372,29 +369,32 @@ export default function EditPodcast() {
         return (
             <View style={styles.container}>
                 <View style={styles.header}>
-                    <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={() => router.back()}
+                    >
                         <Ionicons name="arrow-back" size={24} color={colors.text} />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>Carregando...</Text>
                 </View>
+
                 <View style={styles.loadingContainer}>
                     <Ionicons name="radio" size={48} color={colors.primary} />
-                    <Text style={styles.loadingText}>Carregando podcast...</Text>
+                    <Text style={styles.loadingText}>
+                        Carregando podcast...
+                    </Text>
                 </View>
             </View>
         );
     }
 
-    if (!podcast) {
-        return null;
-    }
-
-    const currentCoverImage = newCoverImageUri || coverImage;
-
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => router.back()}
+                >
                     <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Editar Podcast</Text>
@@ -411,78 +411,52 @@ export default function EditPodcast() {
 
             <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
                 <View style={styles.content}>
-                    <View style={styles.warningBox}>
-                        <Text style={styles.warningText}>
-                            💡 As alterações feitas aqui afetarão como seu podcast aparece para os ouvintes.
-                        </Text>
-                    </View>
-
-                    {/* ESTATÍSTICAS DO PODCAST */}
-                    <View style={styles.episodeStats}>
-                        <Text style={styles.statsTitle}>Estatísticas</Text>
-                        <View style={styles.statsGrid}>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{podcast.episodes?.length || 0}</Text>
-                                <Text style={styles.statLabel}>Episódios</Text>
-                            </View>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>{podcast.followers || 0}</Text>
-                                <Text style={styles.statLabel}>Seguidores</Text>
-                            </View>
-                            <View style={styles.statItem}>
-                                <Text style={styles.statValue}>0</Text>
-                                <Text style={styles.statLabel}>Reproduções</Text>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* SEÇÃO DE IMAGEM */}
                     <View style={styles.imageSection}>
                         <TouchableOpacity style={styles.imageContainer} onPress={handleSelectImage}>
-                            {currentCoverImage ? (
-                                <Image source={{ uri: currentCoverImage }} style={styles.coverImage} />
+                            {coverImageUri ? (
+                                <Image source={{ uri: coverImageUri }} style={styles.coverImage} />
+                            ) : originalCoverImage ? (
+                                <Image source={{ uri: originalCoverImage }} style={styles.coverImage} />
                             ) : (
                                 <>
                                     <Ionicons name="camera" size={32} color={colors.textSecondary} />
-                                    <Text style={styles.imageText}>Adicionar capa</Text>
+                                    <Text style={styles.imageText}>Alterar capa</Text>
                                 </>
                             )}
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.imageButton} onPress={handleSelectImage}>
                             <Text style={styles.imageButtonText}>
-                                {currentCoverImage ? 'Alterar Imagem' : 'Escolher Imagem'}
+                                {coverImageUri || originalCoverImage ? 'Alterar Imagem' : 'Adicionar Imagem'}
                             </Text>
                         </TouchableOpacity>
                     </View>
 
-                    {/* FORMULÁRIO */}
                     <View style={styles.form}>
                         <Input
                             label="Título do Podcast"
+                            placeholder="Ex: Meu Podcast Incrível"
                             value={title}
                             onChangeText={setTitle}
                             leftIcon="radio"
                             maxLength={100}
-                            placeholder="Digite o título do podcast"
                         />
 
                         <Input
                             label="Descrição"
+                            placeholder="Conte sobre o que é seu podcast..."
                             value={description}
                             onChangeText={setDescription}
                             multiline
                             numberOfLines={4}
                             leftIcon="document-text"
                             maxLength={2000}
-                            placeholder="Descreva sobre o que é seu podcast..."
                         />
                     </View>
 
-                    {/* SELEÇÃO DE CATEGORIA */}
                     <View style={styles.categorySection}>
                         <Text style={styles.categoryLabel}>Categoria</Text>
                         <View style={styles.categoryGrid}>
-                            {CATEGORIES.map((cat: any) => (
+                            {CATEGORIES.map((cat) => (
                                 <TouchableOpacity
                                     key={cat}
                                     style={[
@@ -502,13 +476,11 @@ export default function EditPodcast() {
                         </View>
                     </View>
 
-                    {/* AÇÕES */}
                     <View style={styles.actions}>
                         <Button
-                            title={saving ? "Salvando..." : "Salvar Alterações"}
-                            onPress={handleSave}
+                            title="Salvar Alterações"
+                            onPress={handleSavePodcast}
                             loading={saving}
-                            style={styles.saveButton}
                         />
 
                         <Button
@@ -516,7 +488,6 @@ export default function EditPodcast() {
                             onPress={handleDeletePodcast}
                             variant="danger"
                             style={styles.deleteButton}
-                            disabled={saving}
                         />
                     </View>
                 </View>

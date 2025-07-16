@@ -1,3 +1,4 @@
+// services/firebase.ts - CÓDIGO COMPLETO APÓS ALTERAÇÕES
 import {
     collection,
     deleteDoc,
@@ -301,27 +302,50 @@ export const podcastService = {
 };
 
 // =====================================================
-// EPISODE SERVICES
+// EPISODE SERVICES - IMPLEMENTAÇÃO COMPLETA
 // =====================================================
 
 export const episodeService = {
-    // Create new episode
+    // ✅ CORRIGIR: Create new episode
     create: async (episodeData: Omit<Episode, 'id' | 'likes' | 'comments' | 'isLiked' | 'isSaved' | 'createdAt'>): Promise<string> => {
         try {
+            console.log('💾 Criando episódio no Firestore...');
+            console.log('📋 Dados:', episodeData);
+
+            // Validações
+            if (!episodeData.podcastId) {
+                throw new Error('podcastId é obrigatório');
+            }
+            if (!episodeData.title?.trim()) {
+                throw new Error('Título é obrigatório');
+            }
+            if (!episodeData.audioUrl) {
+                throw new Error('URL do áudio é obrigatória');
+            }
+
+            // Criar ID único
             const episodeRef = doc(collection(db, 'episodes'));
+
+            // Dados completos do episódio
             const episode = {
                 id: episodeRef.id,
                 ...episodeData,
+                title: episodeData.title.trim(),
+                description: episodeData.description?.trim() || '',
                 likes: 0,
                 isLiked: false,
                 isSaved: false,
+                comments: [],
                 createdAt: new Date(),
             };
 
+            console.log('💾 Salvando episódio:', episode.id);
             await setDoc(episodeRef, episode);
+
+            console.log('✅ Episódio criado com sucesso:', episodeRef.id);
             return episodeRef.id;
         } catch (error) {
-            console.error('Error creating episode:', error);
+            console.error('❌ Erro ao criar episódio:', error);
             throw error;
         }
     },
@@ -376,36 +400,104 @@ export const episodeService = {
         }
     },
 
-    // Update episode
+    // ✅ IMPLEMENTAR: Update episode
     update: async (episodeId: string, updates: Partial<Episode>): Promise<void> => {
         try {
-            await updateDoc(doc(db, 'episodes', episodeId), updates);
+            console.log('📝 Atualizando episódio:', episodeId);
+            console.log('🔄 Updates:', updates);
+
+            const updateData = {
+                ...updates,
+                updatedAt: new Date()
+            };
+
+            await updateDoc(doc(db, 'episodes', episodeId), updateData);
+            console.log('✅ Episódio atualizado');
         } catch (error) {
-            console.error('Error updating episode:', error);
+            console.error('❌ Erro ao atualizar episódio:', error);
             throw error;
         }
     },
 
-    // Delete episode
+    // ✅ CORRIGIR: Delete episode
     delete: async (episodeId: string): Promise<void> => {
         try {
+            console.log('🗑️ Deletando episódio:', episodeId);
+
+            // 1. Obter dados do episódio
             const episode = await episodeService.getById(episodeId);
-            if (episode?.audioUrl) {
-                // Delete audio file from storage
-                const audioRef = ref(storage, episode.audioUrl);
-                await deleteObject(audioRef);
+            if (!episode) {
+                throw new Error('Episódio não encontrado');
             }
 
+            // 2. Deletar arquivo de áudio do Storage
+            if (episode.audioUrl) {
+                await storageService.deleteEpisodeAudio(episode.audioUrl);
+            }
+
+            // 3. Deletar documento do Firestore
             await deleteDoc(doc(db, 'episodes', episodeId));
+
+            console.log('✅ Episódio deletado completamente');
         } catch (error) {
-            console.error('Error deleting episode:', error);
+            console.error('❌ Erro ao deletar episódio:', error);
+            throw error;
+        }
+    },
+
+    // ✅ IMPLEMENTAR: Toggle like
+    toggleLike: async (userId: string, episodeId: string): Promise<boolean> => {
+        try {
+            const likeRef = doc(db, 'likes', `${userId}_${episodeId}`);
+            const likeDoc = await getDoc(likeRef);
+
+            if (likeDoc.exists()) {
+                // Unlike
+                await deleteDoc(likeRef);
+                return false;
+            } else {
+                // Like
+                await setDoc(likeRef, {
+                    userId,
+                    episodeId,
+                    createdAt: new Date()
+                });
+                return true;
+            }
+        } catch (error) {
+            console.error('Error toggling like:', error);
+            throw error;
+        }
+    },
+
+    // ✅ IMPLEMENTAR: Toggle save
+    toggleSave: async (userId: string, episodeId: string): Promise<boolean> => {
+        try {
+            const saveRef = doc(db, 'saved', `${userId}_${episodeId}`);
+            const saveDoc = await getDoc(saveRef);
+
+            if (saveDoc.exists()) {
+                // Unsave
+                await deleteDoc(saveRef);
+                return false;
+            } else {
+                // Save
+                await setDoc(saveRef, {
+                    userId,
+                    episodeId,
+                    createdAt: new Date()
+                });
+                return true;
+            }
+        } catch (error) {
+            console.error('Error toggling save:', error);
             throw error;
         }
     }
 };
 
 // =====================================================
-// STORAGE SERVICES
+// STORAGE SERVICES - IMPLEMENTAÇÃO COMPLETA
 // =====================================================
 
 export const storageService = {
@@ -462,23 +554,82 @@ export const storageService = {
         }
     },
 
-    // Upload episode audio
+    // ✅ IMPLEMENTAR: Upload episode audio
     uploadEpisodeAudio: async (audioUri: string, podcastId: string, episodeId: string): Promise<string> => {
         try {
-            // Fetch the audio file
+            console.log('🎵 Iniciando upload de áudio...');
+            console.log('📁 Podcast ID:', podcastId);
+            console.log('🎙️ Episode ID:', episodeId);
+            console.log('📂 Audio URI:', audioUri);
+
+            // 1. Converter URI para blob
             const response = await fetch(audioUri);
+            if (!response.ok) {
+                throw new Error('Falha ao carregar arquivo de áudio');
+            }
+
             const blob = await response.blob();
+            console.log('📊 Audio size:', blob.size, 'bytes');
+            console.log('🎼 Audio type:', blob.type);
 
-            const fileName = `episode-${episodeId}-${Date.now()}.m4a`;
-            const fileRef = ref(storage, `podcasts/${podcastId}/episodes/${fileName}`);
+            // 2. Validar tamanho (máximo 100MB)
+            const maxSize = 100 * 1024 * 1024; // 100MB
+            if (blob.size > maxSize) {
+                throw new Error('Arquivo muito grande. Máximo permitido: 100MB');
+            }
 
-            await uploadBytes(fileRef, blob);
+            // 3. Gerar nome único do arquivo
+            const timestamp = Date.now();
+            const fileName = `episode-${episodeId}-${timestamp}.m4a`;
+            const filePath = `podcasts/${podcastId}/episodes/${fileName}`;
+
+            console.log('📂 Upload path:', filePath);
+
+            // 4. Criar referência no Storage
+            const fileRef = ref(storage, filePath);
+
+            // 5. Metadata do arquivo
+            const metadata = {
+                contentType: 'audio/mp4', // m4a = audio/mp4
+                customMetadata: {
+                    'uploadedBy': 'podcast-app',
+                    'podcastId': podcastId,
+                    'episodeId': episodeId,
+                    'timestamp': timestamp.toString(),
+                    'originalSize': blob.size.toString()
+                }
+            };
+
+            // 6. Upload com progress tracking
+            console.log('📤 Fazendo upload...');
+            const uploadTask = uploadBytes(fileRef, blob, metadata);
+
+            // Aguardar conclusão
+            const uploadResult = await uploadTask;
+            console.log('✅ Upload concluído:', uploadResult.metadata.fullPath);
+
+            // 7. Obter URL de download
+            console.log('🔗 Obtendo URL de download...');
             const downloadURL = await getDownloadURL(fileRef);
+            console.log('✅ URL obtida:', downloadURL);
 
             return downloadURL;
         } catch (error) {
-            console.error('Error uploading episode audio:', error);
+            console.error('❌ Erro no upload de áudio:', error);
             throw error;
+        }
+    },
+
+    // ✅ IMPLEMENTAR: Delete episode audio
+    deleteEpisodeAudio: async (audioUrl: string): Promise<void> => {
+        try {
+            console.log('🗑️ Deletando áudio:', audioUrl);
+            const audioRef = ref(storage, audioUrl);
+            await deleteObject(audioRef);
+            console.log('✅ Áudio deletado com sucesso');
+        } catch (error) {
+            console.error('❌ Erro ao deletar áudio:', error);
+            // Não quebrar o fluxo se não conseguir deletar
         }
     },
 

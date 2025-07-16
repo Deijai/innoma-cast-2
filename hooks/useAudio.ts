@@ -70,19 +70,33 @@ export const usePlayer = () => {
 
     const playEpisode = async (episode: Episode) => {
         try {
+            console.log('🎵 Carregando episódio para reprodução...');
+            console.log('📋 Episode:', episode.title);
+            console.log('🔗 Audio URL:', episode.audioUrl);
+
+            // Validar URL do áudio
+            if (!episode.audioUrl) {
+                throw new Error('Este episódio não possui áudio disponível');
+            }
+
+            // Carregar episódio no player
             await audio.loadEpisode(episode);
+
+            // Iniciar reprodução automaticamente
             await audio.play();
+
+            console.log('✅ Reprodução iniciada');
         } catch (error) {
-            console.error('Error playing episode:', error);
+            console.error('❌ Erro ao reproduzir episódio:', error);
+            throw error;
         }
     };
 
     return {
         ...audio,
-        playEpisode
+        playEpisode // ✅ ADICIONAR ESTA FUNÇÃO
     };
 };
-
 export const useRecorder = () => {
     const audio = useAudio();
 

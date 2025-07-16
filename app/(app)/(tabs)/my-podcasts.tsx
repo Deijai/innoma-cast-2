@@ -51,6 +51,7 @@ export default function MyPodcasts() {
     };
 
     const handleEditPodcast = (podcastId: string) => {
+        console.log('🔧 Navegando para edição do podcast:', podcastId);
         router.push(`/(app)/podcasts/edit/${podcastId}`);
     };
 
