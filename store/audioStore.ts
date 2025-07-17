@@ -1,5 +1,5 @@
-// store/audioStore.ts - STORE DE ÁUDIO APRIMORADO PARA PLAYER PROFISSIONAL
-import { Audio, AVPlaybackStatus, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+// store/audioStore.ts - STORE DE ÁUDIO CORRIGIDO
+import { Audio, AVPlaybackStatus, AVPlaybackStatusSuccess, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { create } from 'zustand';
 import { Episode, PlaybackState } from '../types';
 
@@ -129,26 +129,8 @@ export const useAudioStore = create<EnhancedAudioState>((set, get) => ({
             // Configurar sessão de áudio
             await get().setupAudioSession();
 
-            // Determinar qualidade baseada na configuração
-            const { audioQuality } = get();
-            const qualitySettings = {
-                low: {
-                    androidImplementation: 'SimpleExoPlayer',
-                    androidAudioFocusMode: 1,
-                },
-                medium: {
-                    androidImplementation: 'MediaPlayer',
-                    androidAudioFocusMode: 2,
-                },
-                high: {
-                    androidImplementation: 'SimpleExoPlayer',
-                    androidAudioFocusMode: 2,
-                }
-            };
-
             console.log('🎵 Carregando episódio:', episode.title);
             console.log('🔗 URL do áudio:', episode.audioUrl);
-            console.log('📊 Qualidade:', audioQuality);
 
             // Criar e carregar novo som
             const { sound } = await Audio.Sound.createAsync(
@@ -160,7 +142,6 @@ export const useAudioStore = create<EnhancedAudioState>((set, get) => ({
                     shouldCorrectPitch: true,
                     volume: get().volume,
                     isMuted: get().isMuted,
-                    ...qualitySettings[audioQuality],
                 },
                 // Callback de status atualizado
                 (status) => get().handleAudioInterruption(status)
@@ -370,44 +351,42 @@ export const useAudioStore = create<EnhancedAudioState>((set, get) => ({
         }
     },
 
-    // GESTÃO DE INTERRUPÇÕES
+    // ✅ GESTÃO DE INTERRUPÇÕES - CORRIGIDA
     handleAudioInterruption: (status: AVPlaybackStatus) => {
+        // Verificar se o status está carregado e tem as propriedades necessárias
         if (status.isLoaded) {
+            const loadedStatus = status as AVPlaybackStatusSuccess;
             const currentState = get();
 
             // Atualizar estado baseado no status
             const updates: Partial<EnhancedAudioState> = {
-                position: status.positionMillis || 0,
-                duration: status.durationMillis || 0,
-                isPlaying: status.isPlaying || false,
-                isBuffering: status.isBuffering || false,
-                playbackRate: status.rate || 1.0,
+                position: loadedStatus.positionMillis || 0,
+                duration: loadedStatus.durationMillis || 0,
+                isPlaying: loadedStatus.isPlaying || false,
+                isBuffering: loadedStatus.isBuffering || false,
+                playbackRate: loadedStatus.rate || 1.0,
             };
 
-            // Detectar se houve erro
-            if (!status.isLoaded && status.error) {
-                updates.errorMessage = 'Erro na reprodução';
-                updates.lastError = new Error(status.error);
-                updates.isPlaying = false;
-                console.error('❌ Erro de reprodução:', status.error);
-            }
-
             // Detectar fim da reprodução
-            if (status.didJustFinish && !currentState.shouldLoop) {
+            if (loadedStatus.didJustFinish && !currentState.shouldLoop) {
                 updates.isPlaying = false;
                 updates.position = 0;
                 console.log('🏁 Reprodução finalizada');
             }
 
             set(updates);
-        } else if (status.error) {
-            set({
-                errorMessage: 'Erro ao carregar áudio',
-                lastError: new Error(status.error),
-                isLoading: false,
-                isPlaying: false
-            });
-            console.error('❌ Erro ao carregar:', status.error);
+        } else {
+            // Status não carregado - possível erro
+            const errorStatus = status as { error?: string };
+            if (errorStatus.error) {
+                set({
+                    errorMessage: 'Erro ao carregar áudio',
+                    lastError: new Error(errorStatus.error),
+                    isLoading: false,
+                    isPlaying: false
+                });
+                console.error('❌ Erro ao carregar:', errorStatus.error);
+            }
         }
     },
 
@@ -555,16 +534,18 @@ export const useAudioStore = create<EnhancedAudioState>((set, get) => ({
         }
     },
 
+    // ✅ UPDATE POSITION - CORRIGIDO
     updatePosition: () => {
         const { sound } = get();
         if (sound) {
             sound.getStatusAsync().then((status) => {
                 if (status.isLoaded) {
+                    const loadedStatus = status as AVPlaybackStatusSuccess;
                     set({
-                        position: status.positionMillis || 0,
-                        duration: status.durationMillis || 0,
-                        isPlaying: status.isPlaying || false,
-                        isBuffering: status.isBuffering || false,
+                        position: loadedStatus.positionMillis || 0,
+                        duration: loadedStatus.durationMillis || 0,
+                        isPlaying: loadedStatus.isPlaying || false,
+                        isBuffering: loadedStatus.isBuffering || false,
                     });
                 }
             }).catch(error => {
