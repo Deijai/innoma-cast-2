@@ -1,4 +1,4 @@
-// app/(app)/(tabs)/_layout.tsx - COM LOGS DETALHADOS
+// app/(app)/(tabs)/_layout.tsx - ATUALIZADO COM NOVA ABA
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
@@ -62,6 +62,7 @@ export default function TabsLayout() {
                 },
             }}
         >
+            {/* INÍCIO - TODOS USUÁRIOS */}
             <Tabs.Screen
                 name="index"
                 options={{
@@ -72,34 +73,46 @@ export default function TabsLayout() {
                 }}
             />
 
-            {/* TESTE: SEMPRE MOSTRAR DISCOVER */}
+            {/* DESCOBRIR - TODOS USUÁRIOS */}
             <Tabs.Screen
                 name="discover"
                 options={{
                     title: 'Descobrir',
-                    // href: isCreator ? null : undefined, // COMENTADO PARA TESTE
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="search" size={size} color={color} />
                     ),
                 }}
             />
 
-            {/* TESTE: SEMPRE MOSTRAR LIBRARY */}
+            {/* BIBLIOTECA - APENAS OUVINTES */}
             <Tabs.Screen
                 name="library"
                 options={{
                     title: 'Biblioteca',
-                    // href: isCreator ? null : undefined, // COMENTADO PARA TESTE
+                    href: isCreator ? null : undefined,
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="library" size={size} color={color} />
                     ),
                 }}
             />
 
+            {/* ✅ NOVA ABA: MEUS EPISÓDIOS - APENAS CRIADORES */}
+            <Tabs.Screen
+                name="my-episodes"
+                options={{
+                    title: 'Episódios',
+                    href: !isCreator ? null : undefined,
+                    tabBarIcon: ({ color, size }) => (
+                        <Ionicons name="musical-notes" size={size} color={color} />
+                    ),
+                }}
+            />
+
+            {/* MEUS PODCASTS - APENAS CRIADORES */}
             <Tabs.Screen
                 name="my-podcasts"
                 options={{
-                    title: 'Meus Podcasts',
+                    title: 'Podcasts',
                     href: !isCreator ? null : undefined,
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="mic" size={size} color={color} />
@@ -107,6 +120,7 @@ export default function TabsLayout() {
                 }}
             />
 
+            {/* ANALYTICS - APENAS CRIADORES */}
             <Tabs.Screen
                 name="analytics"
                 options={{

@@ -1,6 +1,7 @@
+// app/(app)/_layout.tsx - ATUALIZADO COM PLAYER PROFISSIONAL
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { PlayerControls } from '../../components/PlayerControls';
+import { ProfessionalAudioPlayer } from '../../components/ProfessionalAudioPlayer'; // ✅ NOVO PLAYER
 import { usePlayer } from '../../hooks/useAudio';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -59,9 +60,9 @@ export default function AppLayout() {
                 />
             </Stack>
 
-            {/* Global Player - appears over all screens when episode is playing */}
+            {/* ✅ PLAYER PROFISSIONAL - aparece sobre todas as telas quando há episódio */}
             {currentEpisode && (
-                <PlayerControls compact />
+                <ProfessionalAudioPlayer compact />
             )}
         </>
     );
