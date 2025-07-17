@@ -1,4 +1,4 @@
-// hooks/useAudio.ts - HOOKS ATUALIZADOS PARA PLAYER PROFISSIONAL
+// hooks/useAudio.ts - VERSÃO CORRIGIDA E MELHORADA
 import { useEffect } from 'react';
 import { useAudioStore } from '../store/audioStore';
 import { Episode } from '../types';
@@ -7,19 +7,38 @@ import { formatTime } from '../utils/format';
 export const useAudio = () => {
     const audioStore = useAudioStore();
 
+    // 🔧 CORREÇÃO: Inicialização mais segura
     useEffect(() => {
-        // Configurar sessão de áudio na inicialização
-        audioStore.setupAudioSession();
+        let mounted = true;
 
-        // Cleanup on unmount
+        const initializeAudio = async () => {
+            try {
+                console.log('🎵 Inicializando sistema de áudio...');
+                await audioStore.setupAudioSession();
+
+                if (mounted) {
+                    console.log('✅ Sistema de áudio inicializado');
+                }
+            } catch (error) {
+                console.error('❌ Erro na inicialização do áudio:', error);
+            }
+        };
+
+        initializeAudio();
+
+        // Cleanup na desmontagem
         return () => {
+            mounted = false;
+            console.log('🧹 Limpando hook useAudio...');
             audioStore.cleanup();
         };
     }, []);
 
+    // 🔧 CORREÇÃO: Funções auxiliares melhoradas
     const getProgress = (): number => {
         if (audioStore.duration === 0) return 0;
-        return audioStore.position / audioStore.duration;
+        const progress = audioStore.position / audioStore.duration;
+        return Math.max(0, Math.min(1, progress)); // Garantir entre 0 e 1
     };
 
     const getProgressPercent = (): string => {
@@ -27,12 +46,50 @@ export const useAudio = () => {
     };
 
     const getRemainingTime = (): string => {
-        const remaining = audioStore.duration - audioStore.position;
+        const remaining = Math.max(0, audioStore.duration - audioStore.position);
         return formatTime(remaining);
     };
 
+    // 🔧 CORREÇÃO: Verificações de estado mais robustas
+    const canPlay = (): boolean => {
+        return !!(
+            audioStore.currentEpisode &&
+            audioStore.sound &&
+            !audioStore.isLoading &&
+            !audioStore.errorMessage
+        );
+    };
+
+    const hasError = (): boolean => {
+        return !!(audioStore.errorMessage || audioStore.lastError);
+    };
+
+    const isActive = (): boolean => {
+        return !!(audioStore.currentEpisode && audioStore.sound);
+    };
+
+    // 🔧 CORREÇÃO: Toggle play/pause mais seguro
+    const togglePlayPause = async () => {
+        try {
+            if (!canPlay()) {
+                console.warn('⚠️ Não é possível reproduzir agora');
+                return;
+            }
+
+            if (audioStore.isPlaying) {
+                console.log('⏸️ Pausando via toggle...');
+                await audioStore.pause();
+            } else {
+                console.log('▶️ Reproduzindo via toggle...');
+                await audioStore.play();
+            }
+        } catch (error) {
+            console.error('❌ Erro no toggle play/pause:', error);
+        }
+    };
+
     return {
-        // State básico
+        // Estado básico
         isPlaying: audioStore.isPlaying,
         position: audioStore.position,
         duration: audioStore.duration,
@@ -54,6 +111,7 @@ export const useAudio = () => {
         // Recording state
         isRecording: audioStore.isRecording,
         recordingDuration: audioStore.recordingDuration,
+        recordingUri: audioStore.recordingUri,
 
         // Player actions básicas
         loadEpisode: audioStore.loadEpisode,
@@ -79,7 +137,7 @@ export const useAudio = () => {
         pauseRecording: audioStore.pauseRecording,
         resumeRecording: audioStore.resumeRecording,
 
-        // Computed values
+        // Computed values - CORRIGIDOS
         formattedPosition: formatTime(audioStore.position),
         formattedDuration: formatTime(audioStore.duration),
         formattedRecordingDuration: formatTime(audioStore.recordingDuration),
@@ -91,130 +149,170 @@ export const useAudio = () => {
         cleanup: audioStore.cleanup,
         clearError: audioStore.clearError,
         resetPlayer: audioStore.resetPlayer,
+        togglePlayPause,
 
-        // Função de toggle play/pause
-        togglePlayPause: () => {
-            if (audioStore.isPlaying) {
-                audioStore.pause();
-            } else {
-                audioStore.play();
-            }
-        },
-
-        // Verificações de estado
-        canPlay: () => audioStore.currentEpisode !== undefined && !audioStore.isLoading,
-        hasError: () => audioStore.errorMessage !== null,
-        isActive: () => audioStore.currentEpisode !== undefined,
+        // Verificações de estado - CORRIGIDAS
+        canPlay,
+        hasError,
+        isActive,
     };
 };
 
-// Hook especializado para player com funcionalidades extras
+// 🔧 CORREÇÃO: Hook especializado para player melhorado
 export const usePlayer = () => {
     const audio = useAudio();
 
+    // 🔧 CORREÇÃO: Função playEpisode mais robusta
     const playEpisode = async (episode: Episode) => {
         try {
-            console.log('🎵 Carregando episódio para reprodução...', episode.title);
+            console.log(`🎵 Iniciando reprodução do episódio: "${episode.title}"`);
 
-            // Validar URL do áudio
+            // Validações
+            if (!episode) {
+                throw new Error('Episódio não fornecido');
+            }
+
             if (!episode.audioUrl) {
                 throw new Error('Este episódio não possui áudio disponível');
             }
 
-            // Carregar episódio no player
+            if (!episode.audioUrl.trim()) {
+                throw new Error('URL do áudio está vazia');
+            }
+
+            // Verificar se é o mesmo episódio
+            if (audio.currentEpisode?.id === episode.id) {
+                console.log('🔄 Mesmo episódio, apenas alternando play/pause...');
+                await audio.togglePlayPause();
+                return;
+            }
+
+            // Carregar novo episódio
+            console.log('📥 Carregando novo episódio...');
             await audio.loadEpisode(episode);
 
-            // Iniciar reprodução automaticamente
-            await audio.play();
+            // Aguardar um pouco para o carregamento
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            console.log('✅ Reprodução iniciada com sucesso');
+            // Iniciar reprodução se carregou com sucesso
+            if (audio.canPlay()) {
+                console.log('▶️ Iniciando reprodução automática...');
+                await audio.play();
+            } else {
+                console.warn('⚠️ Episódio carregado mas não pode reproduzir ainda');
+            }
+
+            console.log('✅ Reprodução do episódio iniciada com sucesso');
+
         } catch (error) {
-            console.error('❌ Erro ao reproduzir episódio:', error);
+            console.error(`❌ Erro ao reproduzir episódio "${episode.title}":`, error);
             throw error;
         }
     };
 
+    // 🔧 CORREÇÃO: Funções de navegação (placeholder para futuro)
     const playNext = async () => {
-        // TODO: Implementar lógica de próximo episódio
         console.log('⏭️ Próximo episódio (não implementado)');
+        // TODO: Implementar lógica de próximo episódio
     };
 
     const playPrevious = async () => {
-        // TODO: Implementar lógica de episódio anterior
         console.log('⏮️ Episódio anterior (não implementado)');
+        // TODO: Implementar lógica de episódio anterior
     };
 
-    const addToQueue = (episode: Episode) => {
-        // TODO: Implementar fila de reprodução
-        console.log('➕ Adicionado à fila:', episode.title);
-    };
-
-    const removeFromQueue = (episodeId: string) => {
-        // TODO: Implementar remoção da fila
-        console.log('➖ Removido da fila:', episodeId);
-    };
-
-    const shuffle = () => {
-        // TODO: Implementar shuffle
-        console.log('🔀 Shuffle (não implementado)');
-    };
-
-    const repeat = () => {
-        audio.setLooping(!audio.shouldLoop);
-        console.log(`🔁 Repeat ${audio.shouldLoop ? 'desativado' : 'ativado'}`);
-    };
-
-    // Controles de velocidade predefinidos
+    // 🔧 CORREÇÃO: Controles de velocidade predefinidos melhorados
     const increaseSpeed = () => {
         const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
         const currentIndex = speeds.indexOf(audio.playbackSpeed);
         const nextIndex = currentIndex < speeds.length - 1 ? currentIndex + 1 : 0;
-        audio.setPlaybackSpeed(speeds[nextIndex]);
+        const newSpeed = speeds[nextIndex];
+
+        console.log(`⚡ Aumentando velocidade: ${audio.playbackSpeed}x → ${newSpeed}x`);
+        audio.setPlaybackSpeed(newSpeed);
     };
 
     const decreaseSpeed = () => {
         const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
         const currentIndex = speeds.indexOf(audio.playbackSpeed);
         const prevIndex = currentIndex > 0 ? currentIndex - 1 : speeds.length - 1;
-        audio.setPlaybackSpeed(speeds[prevIndex]);
+        const newSpeed = speeds[prevIndex];
+
+        console.log(`⚡ Diminuindo velocidade: ${audio.playbackSpeed}x → ${newSpeed}x`);
+        audio.setPlaybackSpeed(newSpeed);
     };
 
     const resetSpeed = () => {
+        console.log('⚡ Resetando velocidade para 1.0x');
         audio.setPlaybackSpeed(1.0);
     };
 
-    // Controles de volume predefinidos
+    // 🔧 CORREÇÃO: Controles de volume melhorados
     const increaseVolume = () => {
         const newVolume = Math.min(audio.volume + 0.1, 1.0);
+        console.log(`🔊 Aumentando volume: ${Math.round(audio.volume * 100)}% → ${Math.round(newVolume * 100)}%`);
         audio.setVolume(newVolume);
     };
 
     const decreaseVolume = () => {
         const newVolume = Math.max(audio.volume - 0.1, 0);
+        console.log(`🔉 Diminuindo volume: ${Math.round(audio.volume * 100)}% → ${Math.round(newVolume * 100)}%`);
         audio.setVolume(newVolume);
     };
 
     const setVolumePercent = (percent: number) => {
         const volume = Math.max(0, Math.min(percent / 100, 1));
+        console.log(`🔊 Definindo volume para: ${percent}%`);
         audio.setVolume(volume);
     };
 
-    // Marcadores e bookmarks
+    // 🔧 CORREÇÃO: Funções de bookmarks (placeholder)
     const createBookmark = () => {
         const currentTime = audio.position;
         console.log(`📖 Bookmark criado em: ${audio.formattedPosition}`);
-        // TODO: Salvar bookmark no storage
+
+        // TODO: Implementar salvamento de bookmark
         return {
             position: currentTime,
             timestamp: new Date(),
-            episodeId: audio.currentEpisode?.id
+            episodeId: audio.currentEpisode?.id,
+            title: `Bookmark em ${audio.formattedPosition}`
         };
     };
 
     const jumpToBookmark = (position: number) => {
-        audio.seekTo(position);
         console.log(`📖 Pulando para bookmark: ${formatTime(position)}`);
+        audio.seekTo(position);
     };
+
+    // 🔧 CORREÇÃO: Informações de progresso melhoradas
+    const getProgressInfo = () => ({
+        current: audio.formattedPosition,
+        total: audio.formattedDuration,
+        remaining: audio.formattedRemainingTime,
+        percent: audio.progressPercent,
+        progress: audio.progress
+    });
+
+    // 🔧 CORREÇÃO: Status do player melhorado
+    const getPlayerStatus = () => ({
+        isPlaying: audio.isPlaying,
+        isLoading: audio.isLoading,
+        isBuffering: audio.isBuffering,
+        hasError: audio.hasError(),
+        canPlay: audio.canPlay(),
+        isActive: audio.isActive(),
+        currentEpisode: audio.currentEpisode
+    });
+
+    // 🔧 CORREÇÃO: Configurações do player
+    const getPlayerSettings = () => ({
+        volume: audio.volume,
+        playbackSpeed: audio.playbackSpeed,
+        audioQuality: audio.audioQuality,
+        shouldLoop: audio.shouldLoop,
+        isMuted: audio.isMuted
+    });
 
     return {
         ...audio,
@@ -223,10 +321,6 @@ export const usePlayer = () => {
         playEpisode,
         playNext,
         playPrevious,
-        addToQueue,
-        removeFromQueue,
-        shuffle,
-        repeat,
 
         // Controles de velocidade
         increaseSpeed,
@@ -242,59 +336,20 @@ export const usePlayer = () => {
         createBookmark,
         jumpToBookmark,
 
-        // Verificações úteis
-        isFirstEpisode: () => {
-            // TODO: Implementar lógica de primeiro episódio
-            return false;
-        },
+        // Verificações úteis (placeholder para futuro)
+        isFirstEpisode: () => false,
+        isLastEpisode: () => false,
+        hasNext: () => false,
+        hasPrevious: () => false,
 
-        isLastEpisode: () => {
-            // TODO: Implementar lógica de último episódio
-            return false;
-        },
-
-        hasNext: () => {
-            // TODO: Implementar verificação de próximo
-            return false;
-        },
-
-        hasPrevious: () => {
-            // TODO: Implementar verificação de anterior
-            return false;
-        },
-
-        // Informações de progresso
-        getProgressInfo: () => ({
-            current: audio.formattedPosition,
-            total: audio.formattedDuration,
-            remaining: audio.formattedRemainingTime,
-            percent: audio.progressPercent,
-            progress: audio.progress
-        }),
-
-        // Informações de estado
-        getPlayerStatus: () => ({
-            isPlaying: audio.isPlaying,
-            isLoading: audio.isLoading,
-            isBuffering: audio.isBuffering,
-            hasError: audio.hasError(),
-            canPlay: audio.canPlay(),
-            isActive: audio.isActive(),
-            currentEpisode: audio.currentEpisode
-        }),
-
-        // Configurações
-        getPlayerSettings: () => ({
-            volume: audio.volume,
-            playbackSpeed: audio.playbackSpeed,
-            audioQuality: audio.audioQuality,
-            shouldLoop: audio.shouldLoop,
-            isMuted: audio.isMuted
-        })
+        // Informações estruturadas
+        getProgressInfo,
+        getPlayerStatus,
+        getPlayerSettings,
     };
 };
 
-// Hook especializado para gravação
+// 🔧 CORREÇÃO: Hook especializado para gravação melhorado
 export const useRecorder = () => {
     const audio = useAudio();
 
@@ -307,23 +362,37 @@ export const useRecorder = () => {
         isRecording: audio.isRecording,
         duration: audio.recordingDuration,
         formattedDuration: audio.formattedRecordingDuration,
-        status: getRecordingStatus()
+        status: getRecordingStatus(),
+        uri: audio.recordingUri
     });
 
+    const canRecord = () => {
+        return !audio.isRecording && !audio.isPlaying && !audio.isLoading;
+    };
+
+    const isRecordingReady = () => {
+        return !audio.isRecording && audio.recordingDuration > 0 && !!audio.recordingUri;
+    };
+
     return {
+        // Estado básico
         isRecording: audio.isRecording,
         recordingDuration: audio.recordingDuration,
         formattedRecordingDuration: audio.formattedRecordingDuration,
+        recordingUri: audio.recordingUri,
 
+        // Actions
         startRecording: audio.startRecording,
         stopRecording: audio.stopRecording,
         pauseRecording: audio.pauseRecording,
         resumeRecording: audio.resumeRecording,
 
+        // Informações
         getRecordingStatus,
         getRecordingInfo,
 
-        canRecord: () => !audio.isRecording && !audio.isPlaying,
-        isRecordingReady: () => audio.recordingDuration > 0,
+        // Verificações
+        canRecord,
+        isRecordingReady,
     };
 };
