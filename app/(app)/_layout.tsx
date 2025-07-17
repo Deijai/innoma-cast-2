@@ -1,7 +1,7 @@
 // app/(app)/_layout.tsx - ATUALIZADO COM PLAYER PROFISSIONAL
+import { GlobalPlayerProvider } from '@/hooks/useGlobalPlayer';
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { ProfessionalAudioPlayer } from '../../components/ProfessionalAudioPlayer'; // ✅ NOVO PLAYER
 import { usePlayer } from '../../hooks/useAudio';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -26,44 +26,41 @@ export default function AppLayout() {
 
     return (
         <>
-            <Stack screenOptions={{ headerShown: false }}>
-                {/* Main tabs */}
-                <Stack.Screen name="(tabs)" />
+            <GlobalPlayerProvider>
+                <Stack screenOptions={{ headerShown: false }}>
+                    {/* Main tabs */}
+                    <Stack.Screen name="(tabs)" />
 
-                {/* Modal/Stack screens */}
-                <Stack.Screen
-                    name="podcasts"
-                    options={{
-                        presentation: 'modal',
-                        headerShown: true,
-                        headerStyle: { backgroundColor: colors.surface },
-                        headerTintColor: colors.text,
-                    }}
-                />
-                <Stack.Screen
-                    name="episodes"
-                    options={{
-                        presentation: 'modal',
-                        headerShown: true,
-                        headerStyle: { backgroundColor: colors.surface },
-                        headerTintColor: colors.text,
-                    }}
-                />
-                <Stack.Screen
-                    name="settings"
-                    options={{
-                        headerShown: true,
-                        headerStyle: { backgroundColor: colors.surface },
-                        headerTintColor: colors.text,
-                        headerTitle: 'Configurações',
-                    }}
-                />
-            </Stack>
-
-            {/* ✅ PLAYER PROFISSIONAL - aparece sobre todas as telas quando há episódio */}
-            {currentEpisode && (
-                <ProfessionalAudioPlayer compact />
-            )}
+                    {/* Modal/Stack screens */}
+                    <Stack.Screen
+                        name="podcasts"
+                        options={{
+                            presentation: 'modal',
+                            headerShown: true,
+                            headerStyle: { backgroundColor: colors.surface },
+                            headerTintColor: colors.text,
+                        }}
+                    />
+                    <Stack.Screen
+                        name="episodes"
+                        options={{
+                            presentation: 'modal',
+                            headerShown: true,
+                            headerStyle: { backgroundColor: colors.surface },
+                            headerTintColor: colors.text,
+                        }}
+                    />
+                    <Stack.Screen
+                        name="settings"
+                        options={{
+                            headerShown: true,
+                            headerStyle: { backgroundColor: colors.surface },
+                            headerTintColor: colors.text,
+                            headerTitle: 'Configurações',
+                        }}
+                    />
+                </Stack>
+            </GlobalPlayerProvider>
         </>
     );
 }
