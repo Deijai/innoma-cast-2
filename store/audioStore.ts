@@ -1,15 +1,32 @@
-import { Audio } from 'expo-av';
+// store/audioStore.ts - STORE DE ÁUDIO APRIMORADO PARA PLAYER PROFISSIONAL
+import { Audio, AVPlaybackStatus, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { create } from 'zustand';
 import { Episode, PlaybackState } from '../types';
 
-interface AudioState extends PlaybackState {
+interface EnhancedAudioState extends PlaybackState {
     sound: Audio.Sound | null;
     recording: Audio.Recording | null;
     isRecording: boolean;
     recordingDuration: number;
     recordingUri: string | null;
 
-    // Player Actions
+    // Estados aprimorados
+    isBuffering: boolean;
+    volume: number;
+    isMuted: boolean;
+    playbackRate: number;
+    shouldLoop: boolean;
+    progressUpdateInterval: NodeJS.Timeout | null;
+
+    // Configurações de qualidade
+    audioQuality: 'low' | 'medium' | 'high';
+    shouldDuckAudio: boolean;
+
+    // Estados de erro
+    errorMessage: string | null;
+    lastError: Error | null;
+
+    // Player Actions Aprimoradas
     loadEpisode: (episode: Episode) => Promise<void>;
     play: () => Promise<void>;
     pause: () => Promise<void>;
@@ -19,18 +36,32 @@ interface AudioState extends PlaybackState {
     skipForward: (seconds?: number) => Promise<void>;
     skipBackward: (seconds?: number) => Promise<void>;
 
-    // Recording Actions
+    // Controles de volume
+    setVolume: (volume: number) => Promise<void>;
+    toggleMute: () => Promise<void>;
+
+    // Configurações avançadas
+    setAudioQuality: (quality: 'low' | 'medium' | 'high') => void;
+    setLooping: (shouldLoop: boolean) => Promise<void>;
+
+    // Gestão de sessão
+    handleAudioInterruption: (status: AVPlaybackStatus) => void;
+    setupAudioSession: () => Promise<void>;
+
+    // Recording Actions (mantidas)
     startRecording: () => Promise<void>;
     stopRecording: () => Promise<string | null>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => Promise<void>;
 
-    // Utility
+    // Utility aprimoradas
     cleanup: () => Promise<void>;
     updatePosition: () => void;
+    clearError: () => void;
+    resetPlayer: () => void;
 }
 
-export const useAudioStore = create<AudioState>((set, get) => ({
+export const useAudioStore = create<EnhancedAudioState>((set, get) => ({
     // Player State
     isPlaying: false,
     position: 0,
@@ -46,68 +77,137 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     recordingDuration: 0,
     recordingUri: null,
 
-    loadEpisode: async (episode: Episode) => {
+    // Estados aprimorados
+    isBuffering: false,
+    volume: 1.0,
+    isMuted: false,
+    playbackRate: 1.0,
+    shouldLoop: false,
+    progressUpdateInterval: null,
+
+    // Configurações
+    audioQuality: 'high',
+    shouldDuckAudio: true,
+
+    // Estados de erro
+    errorMessage: null,
+    lastError: null,
+
+    // CONFIGURAÇÃO INICIAL DE ÁUDIO
+    setupAudioSession: async () => {
         try {
-            set({ isLoading: true });
-
-            // Cleanup previous sound
-            const { sound: currentSound } = get();
-            if (currentSound) {
-                await currentSound.unloadAsync();
-            }
-
-            // Set audio mode for playback
             await Audio.setAudioModeAsync({
                 staysActiveInBackground: true,
                 playsInSilentModeIOS: true,
                 shouldDuckAndroid: true,
                 playThroughEarpieceAndroid: false,
                 allowsRecordingIOS: false,
+                interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+                interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
             });
+            console.log('✅ Sessão de áudio configurada');
+        } catch (error) {
+            console.error('❌ Erro ao configurar sessão de áudio:', error);
+            set({ lastError: error as Error, errorMessage: 'Erro na configuração de áudio' });
+        }
+    },
 
-            // Create and load new sound
+    // CARREGAR EPISÓDIO APRIMORADO
+    loadEpisode: async (episode: Episode) => {
+        try {
+            set({ isLoading: true, errorMessage: null });
+
+            // Cleanup previous sound
+            const { sound: currentSound, progressUpdateInterval } = get();
+            if (currentSound) {
+                await currentSound.unloadAsync();
+            }
+            if (progressUpdateInterval) {
+                clearInterval(progressUpdateInterval);
+            }
+
+            // Configurar sessão de áudio
+            await get().setupAudioSession();
+
+            // Determinar qualidade baseada na configuração
+            const { audioQuality } = get();
+            const qualitySettings = {
+                low: {
+                    androidImplementation: 'SimpleExoPlayer',
+                    androidAudioFocusMode: 1,
+                },
+                medium: {
+                    androidImplementation: 'MediaPlayer',
+                    androidAudioFocusMode: 2,
+                },
+                high: {
+                    androidImplementation: 'SimpleExoPlayer',
+                    androidAudioFocusMode: 2,
+                }
+            };
+
+            console.log('🎵 Carregando episódio:', episode.title);
+            console.log('🔗 URL do áudio:', episode.audioUrl);
+            console.log('📊 Qualidade:', audioQuality);
+
+            // Criar e carregar novo som
             const { sound } = await Audio.Sound.createAsync(
                 { uri: episode.audioUrl },
                 {
                     shouldPlay: false,
-                    isLooping: false,
+                    isLooping: get().shouldLoop,
                     rate: get().playbackSpeed,
                     shouldCorrectPitch: true,
+                    volume: get().volume,
+                    isMuted: get().isMuted,
+                    ...qualitySettings[audioQuality],
                 },
-                (status) => {
-                    if (status.isLoaded) {
-                        set({
-                            position: status.positionMillis || 0,
-                            duration: status.durationMillis || 0,
-                            isPlaying: status.isPlaying || false,
-                        });
-                    }
-                }
+                // Callback de status atualizado
+                (status) => get().handleAudioInterruption(status)
             );
+
+            // Configurar intervalo de atualização de progresso
+            const interval = setInterval(() => {
+                get().updatePosition();
+            }, 500); // Atualiza a cada 500ms para suavidade
 
             set({
                 sound,
                 currentEpisode: episode,
                 position: 0,
-                isLoading: false
+                isLoading: false,
+                progressUpdateInterval: interval,
+                errorMessage: null
             });
 
+            console.log('✅ Episódio carregado com sucesso');
+
         } catch (error) {
-            console.error('Error loading episode:', error);
-            set({ isLoading: false });
+            console.error('❌ Erro ao carregar episódio:', error);
+            set({
+                isLoading: false,
+                lastError: error as Error,
+                errorMessage: 'Não foi possível carregar o episódio'
+            });
             throw error;
         }
     },
 
+    // CONTROLES DE REPRODUÇÃO APRIMORADOS
     play: async () => {
         try {
             const { sound } = get();
             if (sound) {
                 await sound.playAsync();
-                set({ isPlaying: true });
+                set({ isPlaying: true, errorMessage: null });
+                console.log('▶️ Reprodução iniciada');
             }
         } catch (error) {
-            console.error('Error playing audio:', error);
+            console.error('❌ Erro ao reproduzir:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao reproduzir áudio'
+            });
         }
     },
 
@@ -117,9 +217,14 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             if (sound) {
                 await sound.pauseAsync();
                 set({ isPlaying: false });
+                console.log('⏸️ Reprodução pausada');
             }
         } catch (error) {
-            console.error('Error pausing audio:', error);
+            console.error('❌ Erro ao pausar:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao pausar áudio'
+            });
         }
     },
 
@@ -130,21 +235,33 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 await sound.stopAsync();
                 await sound.setPositionAsync(0);
                 set({ position: 0, isPlaying: false });
+                console.log('⏹️ Reprodução parada');
             }
         } catch (error) {
-            console.error('Error stopping audio:', error);
+            console.error('❌ Erro ao parar:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao parar áudio'
+            });
         }
     },
 
     seekTo: async (position: number) => {
         try {
-            const { sound } = get();
-            if (sound) {
-                await sound.setPositionAsync(position);
-                set({ position });
+            const { sound, duration } = get();
+            if (sound && duration > 0) {
+                // Garantir que a posição está dentro dos limites
+                const clampedPosition = Math.max(0, Math.min(position, duration));
+                await sound.setPositionAsync(clampedPosition);
+                set({ position: clampedPosition });
+                console.log(`⏭️ Posição alterada para: ${clampedPosition}ms`);
             }
         } catch (error) {
-            console.error('Error seeking audio:', error);
+            console.error('❌ Erro ao buscar posição:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao alterar posição'
+            });
         }
     },
 
@@ -153,10 +270,15 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             const { sound } = get();
             if (sound) {
                 await sound.setRateAsync(speed, true);
-                set({ playbackSpeed: speed });
+                set({ playbackSpeed: speed, playbackRate: speed });
+                console.log(`🎛️ Velocidade alterada para: ${speed}x`);
             }
         } catch (error) {
-            console.error('Error setting playback speed:', error);
+            console.error('❌ Erro ao alterar velocidade:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao alterar velocidade'
+            });
         }
     },
 
@@ -165,8 +287,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             const { position, duration } = get();
             const newPosition = Math.min(position + (seconds * 1000), duration);
             await get().seekTo(newPosition);
+            console.log(`⏭️ Avançou ${seconds}s`);
         } catch (error) {
-            console.error('Error skipping forward:', error);
+            console.error('❌ Erro ao avançar:', error);
         }
     },
 
@@ -175,20 +298,127 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             const { position } = get();
             const newPosition = Math.max(position - (seconds * 1000), 0);
             await get().seekTo(newPosition);
+            console.log(`⏮️ Retrocedeu ${seconds}s`);
         } catch (error) {
-            console.error('Error skipping backward:', error);
+            console.error('❌ Erro ao retroceder:', error);
         }
     },
 
+    // CONTROLES DE VOLUME
+    setVolume: async (volume: number) => {
+        try {
+            const { sound } = get();
+            const clampedVolume = Math.max(0, Math.min(volume, 1));
+
+            if (sound) {
+                await sound.setVolumeAsync(clampedVolume);
+            }
+
+            set({ volume: clampedVolume, isMuted: clampedVolume === 0 });
+            console.log(`🔊 Volume alterado para: ${Math.round(clampedVolume * 100)}%`);
+        } catch (error) {
+            console.error('❌ Erro ao alterar volume:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao alterar volume'
+            });
+        }
+    },
+
+    toggleMute: async () => {
+        try {
+            const { sound, isMuted, volume } = get();
+
+            if (sound) {
+                if (isMuted) {
+                    // Desmutear - restaurar volume anterior
+                    await sound.setVolumeAsync(volume);
+                    set({ isMuted: false });
+                    console.log('🔊 Som desmutado');
+                } else {
+                    // Mutear - volume zero
+                    await sound.setVolumeAsync(0);
+                    set({ isMuted: true });
+                    console.log('🔇 Som mutado');
+                }
+            }
+        } catch (error) {
+            console.error('❌ Erro ao alterar mudo:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao alterar som'
+            });
+        }
+    },
+
+    // CONFIGURAÇÕES AVANÇADAS
+    setAudioQuality: (quality: 'low' | 'medium' | 'high') => {
+        set({ audioQuality: quality });
+        console.log(`🎛️ Qualidade de áudio alterada para: ${quality}`);
+    },
+
+    setLooping: async (shouldLoop: boolean) => {
+        try {
+            const { sound } = get();
+            if (sound) {
+                await sound.setIsLoopingAsync(shouldLoop);
+            }
+            set({ shouldLoop });
+            console.log(`🔁 Loop ${shouldLoop ? 'ativado' : 'desativado'}`);
+        } catch (error) {
+            console.error('❌ Erro ao alterar loop:', error);
+        }
+    },
+
+    // GESTÃO DE INTERRUPÇÕES
+    handleAudioInterruption: (status: AVPlaybackStatus) => {
+        if (status.isLoaded) {
+            const currentState = get();
+
+            // Atualizar estado baseado no status
+            const updates: Partial<EnhancedAudioState> = {
+                position: status.positionMillis || 0,
+                duration: status.durationMillis || 0,
+                isPlaying: status.isPlaying || false,
+                isBuffering: status.isBuffering || false,
+                playbackRate: status.rate || 1.0,
+            };
+
+            // Detectar se houve erro
+            if (!status.isLoaded && status.error) {
+                updates.errorMessage = 'Erro na reprodução';
+                updates.lastError = new Error(status.error);
+                updates.isPlaying = false;
+                console.error('❌ Erro de reprodução:', status.error);
+            }
+
+            // Detectar fim da reprodução
+            if (status.didJustFinish && !currentState.shouldLoop) {
+                updates.isPlaying = false;
+                updates.position = 0;
+                console.log('🏁 Reprodução finalizada');
+            }
+
+            set(updates);
+        } else if (status.error) {
+            set({
+                errorMessage: 'Erro ao carregar áudio',
+                lastError: new Error(status.error),
+                isLoading: false,
+                isPlaying: false
+            });
+            console.error('❌ Erro ao carregar:', status.error);
+        }
+    },
+
+    // RECORDING ACTIONS (mantidas do código original)
     startRecording: async () => {
         try {
-            // Request permissions
             const { status } = await Audio.requestPermissionsAsync();
             if (status !== 'granted') {
                 throw new Error('Permission to record audio denied');
             }
 
-            // Set audio mode for recording
             await Audio.setAudioModeAsync({
                 allowsRecordingIOS: true,
                 playsInSilentModeIOS: true,
@@ -197,13 +427,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 playThroughEarpieceAndroid: false,
             });
 
-            // Create new recording instance
             const recording = new Audio.Recording();
-
-            // Prepare recording with HIGH_QUALITY preset
             await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-
-            // Start recording
             await recording.startAsync();
 
             set({
@@ -213,7 +438,6 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 recordingUri: null
             });
 
-            // Update recording duration every second
             const interval = setInterval(() => {
                 const { isRecording } = get();
                 if (!isRecording) {
@@ -225,6 +449,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
         } catch (error) {
             console.error('Error starting recording:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao iniciar gravação'
+            });
             throw error;
         }
     },
@@ -234,11 +462,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             const { recording } = get();
             if (!recording) return null;
 
-            // Stop and unload recording
             await recording.stopAndUnloadAsync();
             const uri = recording.getURI();
 
-            // Reset audio mode back to playback
             await Audio.setAudioModeAsync({
                 allowsRecordingIOS: false,
                 playsInSilentModeIOS: true,
@@ -256,6 +482,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
             return uri;
         } catch (error) {
             console.error('Error stopping recording:', error);
+            set({
+                lastError: error as Error,
+                errorMessage: 'Erro ao parar gravação'
+            });
             throw error;
         }
     },
@@ -263,13 +493,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     pauseRecording: async () => {
         try {
             const { recording } = get();
-            if (recording) {
-                // Check if pauseAsync is available (Android API 24+)
-                if (recording.pauseAsync) {
-                    await recording.pauseAsync();
-                } else {
-                    console.warn('Pause recording not supported on this platform');
-                }
+            if (recording && recording.pauseAsync) {
+                await recording.pauseAsync();
             }
         } catch (error) {
             console.error('Error pausing recording:', error);
@@ -280,7 +505,6 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         try {
             const { recording } = get();
             if (recording) {
-                // Resume is done by calling startAsync again after pause
                 await recording.startAsync();
             }
         } catch (error) {
@@ -288,9 +512,14 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         }
     },
 
+    // UTILITIES APRIMORADAS
     cleanup: async () => {
         try {
-            const { sound, recording } = get();
+            const { sound, recording, progressUpdateInterval } = get();
+
+            if (progressUpdateInterval) {
+                clearInterval(progressUpdateInterval);
+            }
 
             if (sound) {
                 await sound.unloadAsync();
@@ -300,7 +529,6 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 try {
                     await recording.stopAndUnloadAsync();
                 } catch (error) {
-                    // Recording might already be stopped
                     console.log('Recording was already stopped');
                 }
             }
@@ -314,15 +542,20 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                 duration: 0,
                 recordingDuration: 0,
                 recordingUri: null,
-                currentEpisode: undefined
+                currentEpisode: undefined,
+                progressUpdateInterval: null,
+                isBuffering: false,
+                errorMessage: null,
+                lastError: null
             });
+
+            console.log('🧹 Cleanup completo do áudio');
         } catch (error) {
-            console.error('Error cleaning up audio:', error);
+            console.error('❌ Erro no cleanup:', error);
         }
     },
 
     updatePosition: () => {
-        // Force position update by getting current status
         const { sound } = get();
         if (sound) {
             sound.getStatusAsync().then((status) => {
@@ -331,11 +564,29 @@ export const useAudioStore = create<AudioState>((set, get) => ({
                         position: status.positionMillis || 0,
                         duration: status.durationMillis || 0,
                         isPlaying: status.isPlaying || false,
+                        isBuffering: status.isBuffering || false,
                     });
                 }
             }).catch(error => {
                 console.log('Error getting audio status:', error);
             });
         }
+    },
+
+    clearError: () => {
+        set({ errorMessage: null, lastError: null });
+    },
+
+    resetPlayer: () => {
+        const { cleanup } = get();
+        cleanup();
+        set({
+            playbackSpeed: 1.0,
+            volume: 1.0,
+            isMuted: false,
+            shouldLoop: false,
+            audioQuality: 'high'
+        });
+        console.log('🔄 Player resetado');
     }
 }));
